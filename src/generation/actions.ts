@@ -1,13 +1,9 @@
 "use client";
 
 import type { GenerationPlane } from "./plane";
-import type { StatusResult, GenerationStatus } from "./platform";
+import type { GenerationStatus, StatusResult, QueuedGeneration } from "./platform";
 
-type Job = {
-  promise: Promise<GenerationStatus>;
-};
-
-const jobs = new Map<string, Job>();
+const jobs = new Map<string, Promise<GenerationStatus>>();
 const IMAGE_SPACE = "https://mrfakename-z-image-turbo.hf.space";
 const VIDEO_SPACE = "https://lightricks-ltx-video-distilled.hf.space";
 
@@ -16,7 +12,7 @@ function id() {
 }
 
 function firstUrl(value: unknown): string | undefined {
-  if (typeof value === "string" && /^https?:\\/\\//.test(value)) return value;
+  if (typeof value === "string" && value.startsWith("http")) return value;
   if (Array.isArray(value)) {
     for (const item of value) {
       const found = firstUrl(item);
@@ -24,7 +20,9 @@ function firstUrl(value: unknown): string | undefined {
     }
   }
   if (value && typeof value === "object") {
-    for (const item of Object.values(value as Record<string, unknown>)) {
+    const record = value as Record<string, unknown>;
+    if (typeof record.url === "string" && record.url.startsWith("http")) return record.url;
+    for (const item of Object.values(record)) {
       const found = firstUrl(item);
       if (found) return found;
     }
@@ -52,7 +50,7 @@ async function callSpace(baseUrl: string, apiName: string, input: unknown[]): Pr
     const chunk = await reader.read();
     if (chunk.done) break;
     buffer += decoder.decode(chunk.value, { stream: true });
-    const frames = buffer.split("\\n\\n");
+    const frames = buffer.split("\n\n");
     buffer = frames.pop() ?? "";
     for (const frame of frames) {
       const event = frame.match(/^event:\s*(.+)$/m)?.[1]?.trim();
@@ -64,9 +62,8 @@ async function callSpace(baseUrl: string, apiName: string, input: unknown[]): Pr
   throw new Error("Free model Space ended without a completed result.");
 }
 
-async function runFreeModel(plane: GenerationPlane): Promise<GenerationStatus> {
-  const isImage = plane.surface === "image";
-  if (isImage) {
+async function runFreeModel(plane: GenerationPlane, requestId: string): Promise<GenerationStatus> {
+  if (plane.surface === "image") {
     const result = await callSpace(IMAGE_SPACE, "generate_image", [
       plane.prompt.text,
       1024,
@@ -77,7 +74,7 @@ async function runFreeModel(plane: GenerationPlane): Promise<GenerationStatus> {
     ]);
     const url = firstUrl(result);
     if (!url) throw new Error("The free image model returned no image URL.");
-    return { status: "completed", requestId: "", images: [{ url }] };
+    return { status: "completed", requestId, images: [{ url }] };
   }
 
   const result = await callSpace(VIDEO_SPACE, "text_to_video", [
@@ -97,46 +94,36 @@ async function runFreeModel(plane: GenerationPlane): Promise<GenerationStatus> {
   ]);
   const url = firstUrl(result);
   if (!url) throw new Error("The free video model returned no video URL.");
-  return { status: "completed", requestId: "", video: { url } };
+  return { status: "completed", requestId, video: { url } };
 }
 
-export async function savePlatformCredentials(_data: unknown) {
-  return;
-}
+export async function savePlatformCredentials(_data: unknown) {}
+export async function clearPlatformCredentials() {}
+export async function hasPlatformCredentials() { return true; }
 
-export async function clearPlatformCredentials() {
-  return;
-}
-
-export async function hasPlatformCredentials() {
-  return true;
-}
-
-export async function submitGeneration(plane: GenerationPlane): Promise<StatusResult> {
+export async function submitGeneration(plane: GenerationPlane): Promise<QueuedGeneration> {
   const requestId = id();
-  const promise = runFreeModel(plane).then((status) => ({ ...status, requestId }));
-  jobs.set(requestId, { promise });
-  void promise.finally(() => window.setTimeout(() => jobs.delete(requestId), 15 * 60_000));
+  const promise = runFreeModel(plane, requestId).catch((error) => ({
+    status: "failed",
+    requestId,
+    error: error instanceof Error ? error.message : String(error),
+  }));
+  jobs.set(requestId, promise);
+  void promise.finally(() => window.setTimeout(() => jobs.delete(requestId), 30 * 60_000));
   return { status: "queued", requestId, statusUrl: "", cancelUrl: "" };
 }
 
 export async function getGenerationStatuses(data: unknown): Promise<StatusResult[]> {
   const ids = (data as { requestIds?: unknown })?.requestIds;
   if (!Array.isArray(ids)) throw new Error("Invalid request ids");
-  const results: StatusResult[] = [];
-  for (const requestId of ids) {
-    if (typeof requestId !== "string") continue;
+  return Promise.all(ids.filter((value): value is string => typeof value === "string").map(async (requestId) => {
     const job = jobs.get(requestId);
-    if (!job) {
-      results.push({ requestId, error: "This free generation job is no longer available in this browser session." });
-      continue;
-    }
-    const settled = await Promise.race([
-      job.promise.then((value) => ({ done: true as const, value })),
-      Promise.resolve({ done: false as const }),
+    if (!job) return { requestId, error: "This generation job is no longer available in this browser session." };
+    const current = await Promise.race([
+      job.then((status) => ({ done: true as const, status })),
+      new Promise<{ done: false }>((resolve) => window.setTimeout(() => resolve({ done: false }), 250)),
     ]);
-    if (settled.done) results.push(settled.value as StatusResult);
-    else results.push({ requestId, status: "processing" });
-  }
-  return results;
+    if (current.done) return { requestId, status: current.status };
+    return { requestId, status: { status: "processing", requestId } };
+  }));
 }

@@ -1,59 +1,142 @@
 "use client";
 
-import { getModel, parseSettings } from "./catalog";
-import type { GenerationPlane } from "./catalog/types";
-import { MissingCredentialsError, parseCredentialInput } from "./credentials";
-import { createPlatformClient } from "./platform";
-import type { StatusResult } from "./platform";
-import { toPlatform } from "./to-platform";
+import type { GenerationPlane } from "./plane";
+import type { StatusResult, GenerationStatus } from "./platform";
 
-const STORAGE_KEY = "openhiggsfield.platform.apiKey";
-const DEFAULT_BASE_URL = "https://platform.higgsfield.ai";
+type Job = {
+  promise: Promise<GenerationStatus>;
+};
 
-export async function savePlatformCredentials(data: unknown) {
-  const { apiKey } = parseCredentialInput(data);
-  window.localStorage.setItem(STORAGE_KEY, apiKey);
+const jobs = new Map<string, Job>();
+const IMAGE_SPACE = "https://mrfakename-z-image-turbo.hf.space";
+const VIDEO_SPACE = "https://lightricks-ltx-video-distilled.hf.space";
+
+function id() {
+  return `free-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function firstUrl(value: unknown): string | undefined {
+  if (typeof value === "string" && /^https?:\\/\\//.test(value)) return value;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = firstUrl(item);
+      if (found) return found;
+    }
+  }
+  if (value && typeof value === "object") {
+    for (const item of Object.values(value as Record<string, unknown>)) {
+      const found = firstUrl(item);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
+async function callSpace(baseUrl: string, apiName: string, input: unknown[]): Promise<unknown> {
+  const queued = await fetch(`${baseUrl}/gradio_api/call/${apiName}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data: input }),
+  });
+  if (!queued.ok) throw new Error(`Free model Space rejected the request (${queued.status}).`);
+  const { event_id: eventId } = (await queued.json()) as { event_id?: string };
+  if (!eventId) throw new Error("Free model Space did not return a job id.");
+
+  const response = await fetch(`${baseUrl}/gradio_api/call/${apiName}/${eventId}`);
+  if (!response.ok || !response.body) throw new Error(`Free model Space status request failed (${response.status}).`);
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    buffer += decoder.decode(chunk.value, { stream: true });
+    const frames = buffer.split("\\n\\n");
+    buffer = frames.pop() ?? "";
+    for (const frame of frames) {
+      const event = frame.match(/^event:\s*(.+)$/m)?.[1]?.trim();
+      const dataLine = frame.match(/^data:\s*(.+)$/m)?.[1]?.trim();
+      if (event === "error") throw new Error(dataLine || "Free model generation failed.");
+      if (event === "complete" && dataLine) return JSON.parse(dataLine);
+    }
+  }
+  throw new Error("Free model Space ended without a completed result.");
+}
+
+async function runFreeModel(plane: GenerationPlane): Promise<GenerationStatus> {
+  const isImage = plane.surface === "image";
+  if (isImage) {
+    const result = await callSpace(IMAGE_SPACE, "generate_image", [
+      plane.prompt.text,
+      1024,
+      1024,
+      9,
+      Math.floor(Math.random() * 2 ** 32),
+      true,
+    ]);
+    const url = firstUrl(result);
+    if (!url) throw new Error("The free image model returned no image URL.");
+    return { status: "completed", requestId: "", images: [{ url }] };
+  }
+
+  const result = await callSpace(VIDEO_SPACE, "text_to_video", [
+    plane.prompt.text,
+    "worst quality, blurry, watermark",
+    "",
+    "",
+    512,
+    768,
+    "text-to-video",
+    4,
+    25,
+    Math.floor(Math.random() * 2 ** 32),
+    true,
+    3,
+    false,
+  ]);
+  const url = firstUrl(result);
+  if (!url) throw new Error("The free video model returned no video URL.");
+  return { status: "completed", requestId: "", video: { url } };
+}
+
+export async function savePlatformCredentials(_data: unknown) {
+  return;
 }
 
 export async function clearPlatformCredentials() {
-  window.localStorage.removeItem(STORAGE_KEY);
+  return;
 }
 
 export async function hasPlatformCredentials() {
-  try {
-    return Boolean(window.localStorage.getItem(STORAGE_KEY));
-  } catch {
-    return false;
-  }
+  return true;
 }
 
-function readCredentials() {
-  const apiKey = window.localStorage.getItem(STORAGE_KEY);
-  if (!apiKey) throw new MissingCredentialsError();
-  return createPlatformClient({ apiKey, baseUrl: DEFAULT_BASE_URL });
-}
-
-export async function submitGeneration(plane: GenerationPlane) {
-  const model = getModel(plane.model);
-  const parsed: GenerationPlane = { ...plane, settings: parseSettings(model, plane.settings) };
-  const { path, body } = toPlatform(parsed);
-  return readCredentials().submit(path, body);
+export async function submitGeneration(plane: GenerationPlane): Promise<StatusResult> {
+  const requestId = id();
+  const promise = runFreeModel(plane).then((status) => ({ ...status, requestId }));
+  jobs.set(requestId, { promise });
+  void promise.finally(() => window.setTimeout(() => jobs.delete(requestId), 15 * 60_000));
+  return { status: "queued", requestId, statusUrl: "", cancelUrl: "" };
 }
 
 export async function getGenerationStatuses(data: unknown): Promise<StatusResult[]> {
-  if (data === null || typeof data !== "object" || Array.isArray(data)) {
-    throw new Error("Invalid status payload");
-  }
-  const requestIds = (data as { requestIds?: unknown }).requestIds;
-  if (!Array.isArray(requestIds) || requestIds.length === 0 || requestIds.some((id) => typeof id !== "string" || !id)) {
-    throw new Error("Invalid request ids");
-  }
-  const client = readCredentials();
-  return Promise.all(requestIds.map(async (requestId: string) => {
-    try {
-      return { requestId, status: await client.status(requestId) };
-    } catch (caught) {
-      return { requestId, error: caught instanceof Error ? caught.message : String(caught) };
+  const ids = (data as { requestIds?: unknown })?.requestIds;
+  if (!Array.isArray(ids)) throw new Error("Invalid request ids");
+  const results: StatusResult[] = [];
+  for (const requestId of ids) {
+    if (typeof requestId !== "string") continue;
+    const job = jobs.get(requestId);
+    if (!job) {
+      results.push({ requestId, error: "This free generation job is no longer available in this browser session." });
+      continue;
     }
-  }));
+    const settled = await Promise.race([
+      job.promise.then((value) => ({ done: true as const, value })),
+      Promise.resolve({ done: false as const }),
+    ]);
+    if (settled.done) results.push(settled.value as StatusResult);
+    else results.push({ requestId, status: "processing" });
+  }
+  return results;
 }

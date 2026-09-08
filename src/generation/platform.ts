@@ -15,8 +15,7 @@ export type GenerationStatus = {
 
 export type StatusResult =
   | { requestId: string; status: GenerationStatus }
-  | { requestId: string; error: string }
-  | { requestId: string; status?: string; images?: Array<{ url: string }>; video?: { url: string }; error?: unknown };
+  | { requestId: string; error: string };
 
 export class PlatformError extends Error {
   readonly status: number;
@@ -30,4 +29,4 @@ export class PlatformError extends Error {
 }
 
 export function isModelId(model: string) { return /^[a-z0-9._/-]+$/i.test(model) && !model.includes(".."); }
-export function createPlatformClient() { throw new Error("The paid provider has been removed. Free Hugging Face open-model Spaces are used instead."); }
+export function createPlatformClient() { throw new Error("The paid provider has been removed. Free open-model Spaces are used instead."); }

@@ -4,8 +4,8 @@
   "forwardPorts": [3000],
   "portsAttributes": {
     "3000": {
-      "label": "OpenHiggsfield",
-      "onAutoForward": "openPreview"
+      "label": "OpenHiggsfield Studio",
+      "onAutoForward": "openBrowser"
     }
   },
   "containerEnv": {

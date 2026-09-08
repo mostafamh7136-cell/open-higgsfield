@@ -27,7 +27,7 @@ jobs:
       - name: Install dependencies
         run: npm install
       - name: Build static Studio
-        run: GITHUB_PAGES=true npm run build
+        run: GITHUB_PAGES=true NEXT_PUBLIC_SITE_URL=https://mostafamh7136-cell.github.io/open-higgsfield npm run build
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

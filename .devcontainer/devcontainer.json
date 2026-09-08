@@ -16,5 +16,5 @@
     "NEXT_TELEMETRY_DISABLED": "1"
   },
   "postCreateCommand": "corepack enable && corepack prepare pnpm@9.15.9 --activate && pnpm install && pnpm build",
-  "postStartCommand": "nohup pnpm start > /tmp/openhiggsfield.log 2>&1 &"
+  "postStartCommand": "(gh codespace ports visibility 3000:public -c \"$CODESPACE_NAME\" >/tmp/port-public.log 2>&1 || true) && nohup pnpm start -p 3000 > /tmp/openhiggsfield.log 2>&1 &"
 }

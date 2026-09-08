@@ -5,6 +5,8 @@ import { useImageMedia, useVideoMedia } from "./stores/media";
 import { useImagePrompt, useVideoPrompt } from "./stores/prompt";
 import { useSettings } from "./stores/settings";
 
+export type { GenerationPlane } from "./catalog/types";
+
 export function assemblePlane(): GenerationPlane {
   const { model: modelId, surface } = useActive.getState();
   const model = getModel(modelId);

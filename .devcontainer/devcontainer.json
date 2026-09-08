@@ -12,6 +12,6 @@
     "HF_API_BASE_URL": "https://platform.higgsfield.ai",
     "NEXT_TELEMETRY_DISABLED": "1"
   },
-  "postCreateCommand": "corepack enable && corepack prepare pnpm@9.15.9 --activate && pnpm install",
+  "postCreateCommand": "corepack enable && corepack prepare pnpm@9.15.9 --activate && pnpm install && pnpm build",
   "postStartCommand": "nohup pnpm start > /tmp/openhiggsfield.log 2>&1 &"
 }

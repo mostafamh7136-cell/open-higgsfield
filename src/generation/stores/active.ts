@@ -10,6 +10,8 @@ import { browserStorage } from "./browser-storage";
     request — so the ceiling is deliberately small. */
 export const MAX_BATCH = 4;
 
+const DEFAULT_MODEL = "z-image-free";
+
 type ActiveState = {
   surface: Surface;
   model: string;
@@ -22,7 +24,7 @@ export const useActive = create<ActiveState>()(
   persist(
     (set) => ({
       surface: "image",
-      model: "soul-2",
+      model: DEFAULT_MODEL,
       batch: 1,
       setModel: (id) => {
         const model = getModel(id);
@@ -47,7 +49,7 @@ export const useActive = create<ActiveState>()(
         try {
           getModel(state.model);
         } catch {
-          state.setModel("soul-2");
+          state.setModel(DEFAULT_MODEL);
         }
       },
     },

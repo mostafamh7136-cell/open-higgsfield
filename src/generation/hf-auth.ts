@@ -3,7 +3,7 @@
 import { oauthHandleRedirectIfPresent, oauthLoginUrl } from "@huggingface/hub";
 
 const STORAGE_KEY = "openhiggsfield.hf-oauth.v1";
-export type HFSession = { accessToken: string; accessTokenExpiresAt?: number; userInfo?: Record<string, unknown> };
+export type HFSession = { accessToken: string; accessTokenExpiresAt?: number; userInfo?: unknown };
 
 function read(): HFSession | null {
   try {
@@ -11,7 +11,10 @@ function read(): HFSession | null {
     if (!raw) return null;
     const session = JSON.parse(raw) as HFSession;
     if (!session.accessToken) return null;
-    if (session.accessTokenExpiresAt && Date.now() >= session.accessTokenExpiresAt - 30_000) return null;
+    if (session.accessTokenExpiresAt && Date.now() >= session.accessTokenExpiresAt - 30_000) {
+      window.localStorage.removeItem(STORAGE_KEY);
+      return null;
+    }
     return session;
   } catch { return null; }
 }
@@ -22,11 +25,11 @@ export async function initHFSession(): Promise<HFSession | null> {
   if (existing) return existing;
   try {
     const oauthResult = await oauthHandleRedirectIfPresent();
-    if (!oauthResult || oauthResult === false || !oauthResult.accessToken) return null;
+    if (!oauthResult || !oauthResult.accessToken) return null;
     const session: HFSession = {
       accessToken: oauthResult.accessToken,
-      accessTokenExpiresAt: oauthResult.accessTokenExpiresAt,
-      userInfo: oauthResult.userInfo as Record<string, unknown> | undefined,
+      accessTokenExpiresAt: oauthResult.accessTokenExpiresAt instanceof Date ? oauthResult.accessTokenExpiresAt.getTime() : undefined,
+      userInfo: oauthResult.userInfo,
     };
     store(session);
     return session;

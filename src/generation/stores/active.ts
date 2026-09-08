@@ -41,7 +41,7 @@ export const useActive = create<ActiveState>()(
         }),
     }),
     {
-      name: "openhiggsfield.active.v1",
+      name: "openhiggsfield.active.v2",
       storage: browserStorage(),
       partialize: (state) => ({ surface: state.surface, model: state.model, batch: state.batch }),
       onRehydrateStorage: () => (state) => {

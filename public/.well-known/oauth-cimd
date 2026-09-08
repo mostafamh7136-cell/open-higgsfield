@@ -1,0 +1,7 @@
+{
+  "client_id": "https://mostafamh7136-cell.github.io/open-higgsfield/.well-known/oauth-cimd",
+  "client_name": "OpenHiggsfield Free AI Studio",
+  "redirect_uris": ["https://mostafamh7136-cell.github.io/open-higgsfield/"],
+  "token_endpoint_auth_method": "none",
+  "client_uri": "https://mostafamh7136-cell.github.io/open-higgsfield/"
+}

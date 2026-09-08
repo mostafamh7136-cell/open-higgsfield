@@ -1,5 +1,6 @@
 "use client";
 
+import { getModel } from "./catalog";
 import type { GenerationPlane } from "./plane";
 import type { GenerationStatus, StatusResult, QueuedGeneration } from "./platform";
 
@@ -63,7 +64,8 @@ async function callSpace(baseUrl: string, apiName: string, input: unknown[]): Pr
 }
 
 async function runFreeModel(plane: GenerationPlane, requestId: string): Promise<GenerationStatus> {
-  if (plane.surface === "image") {
+  const surface = getModel(plane.model).surface;
+  if (surface === "image") {
     const result = await callSpace(IMAGE_SPACE, "generate_image", [
       plane.prompt.text,
       1024,

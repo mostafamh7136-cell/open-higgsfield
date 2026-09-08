@@ -10,7 +10,7 @@ import { browserStorage } from "./browser-storage";
     request — so the ceiling is deliberately small. */
 export const MAX_BATCH = 4;
 
-const DEFAULT_MODEL = "z-image-free";
+const DEFAULT_MODEL = "flux-schnell-free";
 
 type ActiveState = {
   surface: Surface;

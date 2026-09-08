@@ -16,5 +16,5 @@
     "NEXT_TELEMETRY_DISABLED": "1"
   },
   "postCreateCommand": "corepack enable && corepack prepare pnpm@9.15.9 --activate && pnpm install && pnpm build",
-  "postStartCommand": "(gh codespace ports visibility 3000:public -c \"$CODESPACE_NAME\" >/tmp/port-public.log 2>&1 || true) && nohup pnpm start -p 3000 > /tmp/openhiggsfield.log 2>&1 &"
+  "postStartCommand": "(for i in $(seq 1 30); do if command -v gh >/dev/null 2>&1 && [ -n \"$GITHUB_TOKEN\" ] && [ -n \"$CODESPACE_NAME\" ]; then GH_TOKEN=\"$GITHUB_TOKEN\" gh codespace ports visibility 3000:public -c \"$CODESPACE_NAME\" >/tmp/port-public.log 2>&1 && break; fi; sleep 2; done) & nohup pnpm start -p 3000 > /tmp/openhiggsfield.log 2>&1 &"
 }

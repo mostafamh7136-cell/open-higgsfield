@@ -1,0 +1,17 @@
+{
+  "name": "OpenHiggsfield AI Studio",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm",
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": {
+      "label": "OpenHiggsfield",
+      "onAutoForward": "openPreview"
+    }
+  },
+  "containerEnv": {
+    "HF_API_BASE_URL": "https://platform.higgsfield.ai",
+    "NEXT_TELEMETRY_DISABLED": "1"
+  },
+  "postCreateCommand": "corepack enable && corepack prepare pnpm@9.15.9 --activate && pnpm install",
+  "postStartCommand": "nohup pnpm start > /tmp/openhiggsfield.log 2>&1 &"
+}

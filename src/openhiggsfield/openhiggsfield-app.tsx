@@ -310,8 +310,6 @@ export function OpenHiggsfieldApp({ fontClassName = "" }: { fontClassName?: stri
      its own skeletons and keeps its own watch, so the composer is free the
      moment the tiles appear and any number of runs can be in flight. */
   const generate = useCallback(async () => {
-    if (!keyConfigured) {
-    }
     const plane = assemblePlane();
     if (!plane.prompt.text.trim()) return;
 
@@ -608,7 +606,6 @@ export function OpenHiggsfieldApp({ fontClassName = "" }: { fontClassName?: stri
           <Topbar
             view={view}
             onView={switchView}
-            busy={busy}
           />
 
           <Gallery

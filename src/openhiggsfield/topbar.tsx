@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { VIEWS, VIEW_LABELS, type GalleryView } from "./data";
-import { AssetsIcon, HeartIcon, ImageIcon, KeyIcon, VideoIcon } from "./icons";
+import { AssetsIcon, HeartIcon, ImageIcon, VideoIcon } from "./icons";
 
 const VIEW_ICONS: Record<GalleryView, () => React.ReactNode> = {
   image: () => <ImageIcon />,
@@ -16,14 +16,10 @@ export function Topbar({
   view,
   onView,
   busy,
-  keyConfigured,
-  onKeys,
 }: {
   view: GalleryView;
   onView: (next: GalleryView) => void;
   busy: boolean;
-  keyConfigured: boolean;
-  onKeys: () => void;
 }) {
   const tabsRef = useRef<HTMLDivElement>(null);
   const [thumb, setThumb] = useState<{ x: number; w: number } | null>(null);
@@ -72,7 +68,7 @@ export function Topbar({
 
   return (
     <div className="ohf-topbar">
-      <h1 className="ohf-sr">OpenHiggsfield AI — Open source AI studio</h1>
+      <h1 className="ohf-sr">Free AI Studio — Open-source image & video generation</h1>
 
       <div className="ohf-bar ohf-enter-1">
         <div
@@ -120,23 +116,11 @@ export function Topbar({
         </div>
       </div>
 
-      {/* Generations run on the visitor's own platform key, so this both states
-          whether one is held and opens the modal that sets it — and its lamp is
-          the studio's liveness, the one place accent moves. */}
       <div className="ohf-bar ohf-enter-1">
-        <button
-          type="button"
-          className="ohf-key"
-          data-busy={busy}
-          data-ready={keyConfigured}
-          onClick={onKeys}
-          aria-label={keyConfigured ? "Edit platform key" : "Add platform key"}
-          title={keyConfigured ? "Edit platform key" : "Add platform key"}
-        >
-          <KeyIcon />
-          <span className="ohf-key-text">{keyConfigured ? "Your key" : "Add key"}</span>
+        <span className="ohf-key" data-ready="true" aria-label="Free open models">
+          <span className="ohf-key-text">Free models</span>
           <span className="ohf-lamp" />
-        </button>
+        </span>
       </div>
     </div>
   );

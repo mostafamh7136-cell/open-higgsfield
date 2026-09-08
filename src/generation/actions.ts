@@ -1,15 +1,38 @@
 "use client";
 
+import { Client } from "@gradio/client";
+
 import { getModel } from "./catalog";
 import type { GenerationPlane } from "./plane";
 import type { GenerationStatus, StatusResult, QueuedGeneration } from "./platform";
 
 const jobs = new Map<string, Promise<GenerationStatus>>();
-const IMAGE_SPACE = "https://mrfakename-z-image-turbo.hf.space";
-const VIDEO_SPACE = "https://lightricks-ltx-video-distilled.hf.space";
+const CLIENTS = new Map<string, Promise<Awaited<ReturnType<typeof Client.connect>>>>();
+
+const SPACES = {
+  zImage: "https://mrfakename-z-image-turbo.hf.space",
+  fluxSchnell: "https://evalstate-flux1-schnell.hf.space",
+  wan5b: "https://pragya2-7-wan-2-2-5b-video.hf.space",
+  wan14b: "https://zerogpu-aoti-wan2-2-fp8da-aoti-faster.hf.space",
+  ltx: "https://lightricks-ltx-video-distilled.hf.space",
+} as const;
 
 function id() {
   return `free-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+async function clientFor(space: string) {
+  let client = CLIENTS.get(space);
+  if (!client) {
+    client = Client.connect(space);
+    CLIENTS.set(space, client);
+  }
+  try {
+    return await client;
+  } catch (error) {
+    CLIENTS.delete(space);
+    throw error;
+  }
 }
 
 function firstUrl(value: unknown): string | undefined {
@@ -22,7 +45,10 @@ function firstUrl(value: unknown): string | undefined {
   }
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
-    if (typeof record.url === "string" && record.url.startsWith("http")) return record.url;
+    for (const key of ["url", "path"]) {
+      const found = record[key];
+      if (typeof found === "string" && found.startsWith("http")) return found;
+    }
     for (const item of Object.values(record)) {
       const found = firstUrl(item);
       if (found) return found;
@@ -31,72 +57,152 @@ function firstUrl(value: unknown): string | undefined {
   return undefined;
 }
 
-async function callSpace(baseUrl: string, apiName: string, input: unknown[]): Promise<unknown> {
-  const queued = await fetch(`${baseUrl}/gradio_api/call/${apiName}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ data: input }),
-  });
-  if (!queued.ok) throw new Error(`Free model Space rejected the request (${queued.status}).`);
-  const { event_id: eventId } = (await queued.json()) as { event_id?: string };
-  if (!eventId) throw new Error("Free model Space did not return a job id.");
-
-  const response = await fetch(`${baseUrl}/gradio_api/call/${apiName}/${eventId}`);
-  if (!response.ok || !response.body) throw new Error(`Free model Space status request failed (${response.status}).`);
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  while (true) {
-    const chunk = await reader.read();
-    if (chunk.done) break;
-    buffer += decoder.decode(chunk.value, { stream: true });
-    const frames = buffer.split("\n\n");
-    buffer = frames.pop() ?? "";
-    for (const frame of frames) {
-      const event = frame.match(/^event:\s*(.+)$/m)?.[1]?.trim();
-      const dataLine = frame.match(/^data:\s*(.+)$/m)?.[1]?.trim();
-      if (event === "error") throw new Error(dataLine || "Free model generation failed.");
-      if (event === "complete" && dataLine) return JSON.parse(dataLine);
+async function predictWithRetry(space: string, apiName: string, inputs: unknown[], retries = 1): Promise<unknown> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const app = await clientFor(space);
+      const result = await app.predict(apiName, inputs);
+      return result.data;
+    } catch (error) {
+      lastError = error;
+      CLIENTS.delete(space);
+      if (attempt < retries) await new Promise((resolve) => window.setTimeout(resolve, 1200));
     }
   }
-  throw new Error("Free model Space ended without a completed result.");
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+function dimensionsForRatio(ratio: string, maxArea = 786432): [number, number] {
+  const presets: Record<string, [number, number]> = {
+    "1:1": [768, 768],
+    "16:9": [1024, 576],
+    "9:16": [576, 1024],
+    "4:3": [896, 672],
+    "3:4": [672, 896],
+    "3:2": [960, 640],
+    "2:3": [640, 960],
+  };
+  let [w, h] = presets[ratio] ?? presets["1:1"]!;
+  if (w * h > maxArea) {
+    const scale = Math.sqrt(maxArea / (w * h));
+    w = Math.max(512, Math.round((w * scale) / 32) * 32);
+    h = Math.max(512, Math.round((h * scale) / 32) * 32);
+  }
+  return [w, h];
+}
+
+function inputImage(plane: GenerationPlane) {
+  const media = Object.values(plane.media).flat();
+  return media.find((item) => item.role === "start") ?? media.find((item) => item.role === "reference") ?? media[0];
 }
 
 async function runFreeModel(plane: GenerationPlane, requestId: string): Promise<GenerationStatus> {
-  const surface = getModel(plane.model).surface;
-  if (surface === "image") {
-    const result = await callSpace(IMAGE_SPACE, "generate_image", [
-      plane.prompt.text,
-      1024,
-      1024,
-      9,
-      Math.floor(Math.random() * 2 ** 32),
-      true,
-    ]);
+  const model = getModel(plane.model);
+  if (model.surface === "image") {
+    const ratio = typeof plane.settings.aspectRatio === "string" ? plane.settings.aspectRatio : "1:1";
+    const [width, height] = dimensionsForRatio(ratio);
+    const imageSpace = plane.model === "flux-schnell-free" ? SPACES.fluxSchnell : SPACES.zImage;
+    const apiName = plane.model === "flux-schnell-free" ? "/infer" : "/generate_image";
+    const inputs = plane.model === "flux-schnell-free"
+      ? [plane.prompt.text, Math.floor(Math.random() * 2_147_483_647), true, width, height, 4]
+      : [plane.prompt.text, height, width, 8, Math.floor(Math.random() * 2 ** 32), true];
+    let result: unknown;
+    try {
+      result = await predictWithRetry(imageSpace, apiName, inputs, 1);
+    } catch (primaryError) {
+      if (plane.model !== "flux-schnell-free") {
+        result = await predictWithRetry(SPACES.fluxSchnell, "/infer", [plane.prompt.text, 0, true, width, height, 4], 1);
+      } else {
+        throw primaryError;
+      }
+    }
     const url = firstUrl(result);
     if (!url) throw new Error("The free image model returned no image URL.");
     return { status: "completed", requestId, images: [{ url }] };
   }
 
-  const result = await callSpace(VIDEO_SPACE, "text_to_video", [
-    plane.prompt.text,
-    "worst quality, blurry, watermark",
-    "",
-    "",
-    512,
-    768,
-    "text-to-video",
-    4,
-    25,
-    Math.floor(Math.random() * 2 ** 32),
-    true,
-    3,
-    false,
-  ]);
-  const url = firstUrl(result);
-  if (!url) throw new Error("The free video model returned no video URL.");
-  return { status: "completed", requestId, video: { url } };
+  const ratio = typeof plane.settings.aspectRatio === "string" ? plane.settings.aspectRatio : "16:9";
+  const duration = Math.min(3, Math.max(1, Number(plane.settings.duration) || 2));
+  const [width, height] = dimensionsForRatio(ratio, 589824);
+  const media = inputImage(plane);
+  const imageUrl = media?.url;
+
+  if (plane.model === "wan-2-2-14b-i2v-free") {
+    if (!imageUrl) throw new Error("Wan 2.2 14B Fast needs an input image. Attach an image first.");
+    const result = await predictWithRetry(SPACES.wan14b, "/generate_video", [
+      { url: imageUrl },
+      plane.prompt.text,
+      6,
+      "worst quality, blurry, watermark, jittery",
+      duration,
+      1,
+      1,
+      Math.floor(Math.random() * 2_147_483_647),
+      true,
+    ], 1);
+    const url = firstUrl(result);
+    if (!url) throw new Error("Wan 2.2 14B Fast returned no video URL.");
+    return { status: "completed", requestId, video: { url } };
+  }
+
+  if (plane.model === "ltx-video-free") {
+    const result = await predictWithRetry(SPACES.ltx, "/text_to_video", [
+      plane.prompt.text,
+      "worst quality, inconsistent motion, blurry, jittery, distorted, watermark",
+      imageUrl ?? null,
+      null,
+      height,
+      width,
+      imageUrl ? "image-to-video" : "text-to-video",
+      duration,
+      9,
+      Math.floor(Math.random() * 2_147_483_647),
+      true,
+      1,
+      true,
+    ], 1);
+    const url = firstUrl(result);
+    if (!url) throw new Error("LTX Video returned no video URL.");
+    return { status: "completed", requestId, video: { url } };
+  }
+
+  try {
+    const result = await predictWithRetry(SPACES.wan5b, "/generate_video", [
+      imageUrl ? { url: imageUrl } : null,
+      plane.prompt.text,
+      height,
+      width,
+      "Bright tones, overexposed, static, blurred details, subtitles, worst quality, low quality, watermark, text, signature",
+      duration,
+      4,
+      6,
+      Math.floor(Math.random() * 2_147_483_647),
+      true,
+    ], 1);
+    const url = firstUrl(result);
+    if (!url) throw new Error("Wan 2.2 5B returned no video URL.");
+    return { status: "completed", requestId, video: { url } };
+  } catch (wanError) {
+    const result = await predictWithRetry(SPACES.ltx, "/text_to_video", [
+      plane.prompt.text,
+      "worst quality, inconsistent motion, blurry, jittery, distorted, watermark",
+      imageUrl ?? null,
+      null,
+      512,
+      704,
+      imageUrl ? "image-to-video" : "text-to-video",
+      Math.min(2, duration),
+      9,
+      Math.floor(Math.random() * 2_147_483_647),
+      true,
+      1,
+      true,
+    ], 0);
+    const url = firstUrl(result);
+    if (!url) throw wanError instanceof Error ? wanError : new Error(String(wanError));
+    return { status: "completed", requestId, video: { url } };
+  }
 }
 
 export async function savePlatformCredentials(_data: unknown) {}

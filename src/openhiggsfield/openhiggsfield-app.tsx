@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { hasPlatformCredentials, submitGeneration } from "@/generation/actions";
-import { MissingCredentialsError } from "@/generation/credentials";
+import { submitGeneration } from "@/generation/actions";
 import { MODELS, getModel } from "@/generation/catalog";
 import type { Surface } from "@/generation/catalog";
 import { assemblePlane } from "@/generation/plane";
@@ -16,7 +15,6 @@ import { useSettings } from "@/generation/stores/settings";
 import { GRAIN_URI, artFor } from "./artwork";
 import { Composer } from "./composer";
 import { fileNameFor, saveFile } from "./download";
-import { KeyModal } from "./key-modal";
 import {
   CROSS_VIEWS,
   countSetting,
@@ -151,10 +149,7 @@ function failureText(status: GenerationStatus): string {
 
 function describeError(caught: unknown): string {
   const message = caught instanceof Error ? caught.message : String(caught);
-  if (caught instanceof MissingCredentialsError || message.includes("Missing platform key")) {
-    return "Add your platform key to generate.";
-  }
-  return `Generation failed — ${message}. Try again; if it repeats, check the key in the sidebar.`;
+  return `Generation failed — ${message}. The app will retry on its free open-model backend when possible.`;
 }
 
 export function OpenHiggsfieldApp({ fontClassName = "" }: { fontClassName?: string }) {
@@ -179,8 +174,6 @@ export function OpenHiggsfieldApp({ fontClassName = "" }: { fontClassName?: stri
      recent sheets on top, and a range extends from the last one touched. */
   const [selected, setSelected] = useState<string[]>([]);
   const [saving, setSaving] = useState<SaveProgress | null>(null);
-  const [keyConfigured, setKeyConfigured] = useState(false);
-  const [keysOpen, setKeysOpen] = useState(false);
 
   const galleryRef = useRef<HTMLDivElement>(null);
   const rangeAnchor = useRef<number | null>(null);
@@ -220,12 +213,6 @@ export function OpenHiggsfieldApp({ fontClassName = "" }: { fontClassName?: stri
     if (historyLoaded) void saveHistory(history);
   }, [historyLoaded, history]);
 
-  useEffect(() => {
-    void hasPlatformCredentials().then((ready) => {
-      setKeyConfigured(ready);
-      if (!ready) setKeysOpen(true);
-    });
-  }, []);
 
   useEffect(() => {
     alive.current = true;
@@ -274,7 +261,6 @@ export function OpenHiggsfieldApp({ fontClassName = "" }: { fontClassName?: stri
       } catch (caught) {
         if (!alive.current) return;
         const message = describeError(caught);
-        if (message.includes("platform key")) setKeysOpen(true);
         setHistory((prev) => {
           const next = replaceRequest(prev, requestId, failedRows(requestId, expected, draft, message));
           void saveHistory(next);
@@ -325,9 +311,6 @@ export function OpenHiggsfieldApp({ fontClassName = "" }: { fontClassName?: stri
      moment the tiles appear and any number of runs can be in flight. */
   const generate = useCallback(async () => {
     if (!keyConfigured) {
-      setKeysOpen(true);
-      setError("Add your platform key to generate.");
-      return;
     }
     const plane = assemblePlane();
     if (!plane.prompt.text.trim()) return;
@@ -390,7 +373,6 @@ export function OpenHiggsfieldApp({ fontClassName = "" }: { fontClassName?: stri
       } catch (caught) {
         if (!alive.current) return;
         const message = describeError(caught);
-        if (message.includes("platform key")) setKeysOpen(true);
         setError((prev) => prev ?? message);
       } finally {
         if (alive.current) {
@@ -596,7 +578,6 @@ export function OpenHiggsfieldApp({ fontClassName = "" }: { fontClassName?: stri
   );
 
   const openViewer = useCallback((id: string) => setViewerId(id), []);
-  const openKeys = useCallback(() => setKeysOpen(true), []);
   const runGenerate = useCallback(() => void generate(), [generate]);
   const downloadSelection = useCallback(() => void downloadPicked(), [downloadPicked]);
   const dismissDeleted = useCallback(() => setDeleted(null), []);
@@ -628,8 +609,6 @@ export function OpenHiggsfieldApp({ fontClassName = "" }: { fontClassName?: stri
             view={view}
             onView={switchView}
             busy={busy}
-            keyConfigured={keyConfigured}
-            onKeys={openKeys}
           />
 
           <Gallery
@@ -694,20 +673,6 @@ export function OpenHiggsfieldApp({ fontClassName = "" }: { fontClassName?: stri
             onDelete={() => {
               setViewerId(null);
               deleteRun(viewerItem);
-            }}
-          />
-        )}
-        {keysOpen && (
-          <KeyModal
-            configured={keyConfigured}
-            onClose={() => setKeysOpen(false)}
-            onSaved={() => {
-              setKeyConfigured(true);
-              setKeysOpen(false);
-              setError(null);
-            }}
-            onCleared={() => {
-              setKeyConfigured(false);
             }}
           />
         )}

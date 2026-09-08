@@ -382,7 +382,7 @@ export function OpenHiggsfieldApp({ fontClassName = "" }: { fontClassName?: stri
     };
 
     await Promise.all(slots.map(runOne));
-  }, [keyConfigured, resume]);
+  }, [resume]);
 
   /* Reuse restores the whole plane the run was made from — model, its dials,
      then the words. A reuse that dropped the ratio and resolution would

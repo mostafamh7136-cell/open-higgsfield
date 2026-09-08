@@ -15,11 +15,9 @@ const VIEW_ICONS: Record<GalleryView, () => React.ReactNode> = {
 export function Topbar({
   view,
   onView,
-  busy,
 }: {
   view: GalleryView;
   onView: (next: GalleryView) => void;
-  busy: boolean;
 }) {
   const tabsRef = useRef<HTMLDivElement>(null);
   const [thumb, setThumb] = useState<{ x: number; w: number } | null>(null);

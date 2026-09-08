@@ -1,4 +1,4 @@
-import type { GenerationPlane, MediaItem, MediaRole, ModelEntry, PlatformPaths, Surface } from "./types";
+import type { ModelEntry } from "./types";
 
 const IMAGE: ModelEntry = {
   id: "z-image-free",

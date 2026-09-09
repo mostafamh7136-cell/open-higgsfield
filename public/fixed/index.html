@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>OpenHiggsfield Fixed Studio</title>
+  <script type="module">
+    import { Client, handle_file } from "https://cdn.jsdelivr.net/npm/@gradio/client@2.5.1/dist/index.min.js";
+    window.GradioClient = { Client, handle_file };
+  </script>
+  <style>
+    :root { color-scheme: dark; font-family: Inter,system-ui,-apple-system,Segoe UI,sans-serif; }
+    body { margin:0; background:#0b0d12; color:#f4f7fb; }
+    main { max-width:980px; margin:0 auto; padding:22px; }
+    h1 { margin:0 0 6px; font-size:28px; }
+    .sub { color:#9da7b5; margin-bottom:20px; }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+    .card { background:#131722; border:1px solid #273043; border-radius:14px; padding:16px; }
+    label { display:block; font-size:13px; color:#aeb8c8; margin-bottom:7px; }
+    textarea,input,select,button { width:100%; box-sizing:border-box; border-radius:10px; border:1px solid #303a4d; background:#0d1119; color:#fff; padding:11px; }
+    textarea { min-height:130px; resize:vertical; }
+    button { cursor:pointer; background:#1f6feb; border-color:#2b7fff; font-weight:700; }
+    button.secondary { background:#202735; border-color:#39455d; }
+    button:disabled { opacity:.55; cursor:not-allowed; }
+    .row { display:flex; gap:10px; margin-top:10px; }
+    .row > * { flex:1; }
+    .hidden { display:none; }
+    #status { margin-top:12px; min-height:20px; color:#d9e2f0; white-space:pre-wrap; }
+    #log { margin-top:12px; background:#0a0d13; border:1px solid #202838; border-radius:10px; padding:10px; min-height:90px; max-height:300px; overflow:auto; font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; }
+    #result { margin-top:16px; display:grid; gap:14px; }
+    img,video { width:100%; max-height:640px; object-fit:contain; background:#090b10; border-radius:12px; border:1px solid #283247; }
+    .meta { color:#8792a5; font-size:12px; }
+    .ok { color:#5ee889 !important; }
+    .err { color:#ff7b72 !important; }
+    @media (max-width:760px){ .grid{grid-template-columns:1fr;} main{padding:14px;} }
+  </style>
+</head>
+<body>
+<main>
+  <h1>OpenHiggsfield — Fixed Studio</h1>
+  <div class="sub">Direct browser → Hugging Face Gradio path. This page bypasses the broken generation adapter.</div>
+
+  <div class="grid">
+    <section class="card">
+      <label for="model">Model</label>
+      <select id="model">
+        <option value="zimage">Z Image Turbo — image</option>
+        <option value="flux">FLUX.1 Schnell — image</option>
+        <option value="ltx">LTX Video — text to video</option>
+        <option value="wan5b">Wan 2.2 5B — text to video</option>
+        <option value="wan14b">Wan 2.2 14B Fast — image to video</option>
+      </select>
+
+      <div style="margin-top:14px">
+        <label for="prompt">Prompt</label>
+        <textarea id="prompt">A cinematic realistic city street at night after rain, reflections on the road, people walking naturally, smooth camera movement, photorealistic</textarea>
+      </div>
+
+      <div id="imageBox" class="hidden" style="margin-top:14px">
+        <label for="image">Input image (required for Wan 2.2 14B)</label>
+        <input id="image" type="file" accept="image/*" />
+      </div>
+
+      <div style="margin-top:14px">
+        <label for="token">Optional Hugging Face token (stored only in this browser)</label>
+        <input id="token" type="password" placeholder="hf_..." autocomplete="off" />
+      </div>
+
+      <div class="row">
+        <button id="generate">Generate</button>
+        <button id="clear" class="secondary" type="button">Clear log</button>
+      </div>
+      <div id="status">Ready.</div>
+    </section>
+
+    <section class="card">
+      <div class="meta">Live diagnostic log</div>
+      <pre id="log"></pre>
+      <div id="result"></div>
+    </section>
+  </div>
+</main>
+
+<script type="module">
+  const modelEl = document.getElementById('model');
+  const promptEl = document.getElementById('prompt');
+  const imageEl = document.getElementById('image');
+  const tokenEl = document.getElementById('token');
+  const imageBox = document.getElementById('imageBox');
+  const generateEl = document.getElementById('generate');
+  const clearEl = document.getElementById('clear');
+  const statusEl = document.getElementById('status');
+  const logEl = document.getElementById('log');
+  const resultEl = document.getElementById('result');
+
+  const spaces = {
+    zimage: ['mrfakename/Z-Image-Turbo', '/generate_image', 'image'],
+    flux: ['black-forest-labs/FLUX.1-schnell', '/infer', 'image'],
+    ltx: ['Lightricks/ltx-video-distilled', '/text_to_video', 'video'],
+    wan5b: ['pragya2-7/wan-2-2-5b-video', '/generate_video', 'video'],
+    wan14b: ['zerogpu-aoti/wan2-2-fp8da-aoti-faster', '/generate_video', 'video'],
+  };
+
+  function log(message, data) {
+    const line = `[${new Date().toLocaleTimeString()}] ${message}${data === undefined ? '' : ' ' + JSON.stringify(data)}`;
+    logEl.textContent += line + '\n';
+    logEl.scrollTop = logEl.scrollHeight;
+    console.log('[FixedStudio]', message, data ?? '');
+  }
+
+  function setStatus(text, cls='') {
+    statusEl.textContent = text;
+    statusEl.className = cls;
+  }
+
+  function findUrl(value, space) {
+    if (!value) return null;
+    if (typeof value === 'string') {
+      if (/^https?:\/\//.test(value)) return value;
+      if (value.startsWith('/')) {
+        const [owner, name] = space.split('/');
+        return new URL(value, `https://${owner}-${name}.hf.space`).toString();
+      }
+      return null;
+    }
+    if (Array.isArray(value)) for (const v of value) { const u = findUrl(v, space); if (u) return u; }
+    if (typeof value === 'object') {
+      for (const k of ['url','path']) { const u = findUrl(value[k], space); if (u) return u; }
+      for (const v of Object.values(value)) { const u = findUrl(v, space); if (u) return u; }
+    }
+    return null;
+  }
+
+  function setModelPrompt() {
+    const id = modelEl.value;
+    const isVideo = ['ltx','wan5b','wan14b'].includes(id);
+    imageBox.classList.toggle('hidden', id !== 'wan14b');
+    promptEl.value = isVideo
+      ? 'A cinematic realistic city street at night after rain, reflections on the road, people walking naturally, smooth camera movement, photorealistic'
+      : 'A photorealistic Egyptian desert landscape at golden hour, cinematic photography, natural light, ultra detailed';
+  }
+  modelEl.addEventListener('change', setModelPrompt);
+
+  async function connect(space) {
+    const token = tokenEl.value.trim();
+    log('CONNECT_START', { space, authenticated: Boolean(token) });
+    const opts = token ? { token } : undefined;
+    const client = await window.GradioClient.Client.connect(space, opts);
+    const api = await client.view_api();
+    log('API_VIEW', { endpointNames: Object.keys(api.named_endpoints || {}) });
+    return client;
+  }
+
+  async function run() {
+    generateEl.disabled = true;
+    resultEl.innerHTML = '';
+    const id = modelEl.value;
+    const [space, endpoint, kind] = spaces[id];
+    const prompt = promptEl.value.trim();
+    const seed = 12345;
+    try {
+      setStatus('Connecting…');
+      log('GENERATION_START', { model:id, space, endpoint, kind });
+      if (!prompt) throw new Error('Prompt is empty.');
+
+      const client = await connect(space);
+      let inputs;
+      if (id === 'zimage') {
+        inputs = [prompt, 576, 1024, 8, seed, true];
+      } else if (id === 'flux') {
+        inputs = [prompt, seed, true, 1024, 576, 4];
+      } else if (id === 'ltx') {
+        inputs = [prompt, 'worst quality, inconsistent motion, blurry, jittery, distorted, watermark, text, logo', null, null, 576, 1024, 'text-to-video', 0.3, 9, seed, true, 3, false];
+      } else if (id === 'wan5b') {
+        inputs = [null, prompt, 512, 768, 'Bright tones, overexposed, static, blurred details, subtitles, worst quality, low quality, watermark, text, signature', 1, 4, 6, seed, true];
+      } else {
+        if (!imageEl.files?.[0]) throw new Error('Wan 2.2 14B requires an input image.');
+        inputs = [window.GradioClient.handle_file(imageEl.files[0]), prompt, 4, 'worst quality, blurry, watermark, jittery, distorted, deformed', 4, 1, 1, seed, true];
+      }
+
+      log('PREDICT_INPUTS', { length: inputs.length, primitiveInputs: inputs.map((x,i) => ({i, type: x === null ? 'null' : typeof x})) });
+      setStatus('Generating… this may take a little while.');
+
+      const result = await client.predict(endpoint, inputs);
+      log('PREDICT_SUCCESS', { data: result?.data });
+      const url = findUrl(result?.data, space);
+      if (!url) throw new Error('The model returned no usable media URL.');
+      log('MEDIA_URL_FOUND', { url });
+
+      const card = document.createElement('div');
+      const media = kind === 'image' ? document.createElement('img') : document.createElement('video');
+      media.src = url;
+      media.controls = kind === 'video';
+      media.autoplay = kind === 'video';
+      media.loop = kind === 'video';
+      media.playsInline = true;
+      media.onload = () => log('MEDIA_LOADED', { kind, url });
+      media.onloadeddata = () => log('VIDEO_LOADED', { url });
+      media.onerror = (e) => log('MEDIA_ELEMENT_ERROR', { message: 'Browser could not render media URL', url });
+      card.appendChild(media);
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.style.marginTop = '8px';
+      meta.textContent = url;
+      card.appendChild(meta);
+      resultEl.appendChild(card);
+      setStatus('Generation completed.', 'ok');
+    } catch (error) {
+      log('GENERATION_ERROR', { name:error?.name, message:error?.message, stack:error?.stack?.slice(0,1200) });
+      setStatus(`Error: ${error?.message || String(error)}`, 'err');
+    } finally {
+      generateEl.disabled = false;
+    }
+  }
+
+  generateEl.addEventListener('click', run);
+  clearEl.addEventListener('click', () => { logEl.textContent=''; setStatus('Log cleared.'); });
+  setModelPrompt();
+</script>
+</body>
+</html>

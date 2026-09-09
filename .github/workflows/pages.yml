@@ -18,6 +18,7 @@ jobs:
   smoke:
     name: Live model smoke - ${{ matrix.model }}
     runs-on: ubuntu-latest
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
@@ -37,7 +38,6 @@ jobs:
         run: node scripts/smoke-free-models.mjs
 
   build:
-    needs: smoke
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

@@ -26,6 +26,8 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install
+      - name: Smoke test live free AI models
+        run: node scripts/smoke-free-models.mjs
       - name: Build static Studio
         run: GITHUB_PAGES=true NEXT_PUBLIC_SITE_URL=https://mostafamh7136-cell.github.io/open-higgsfield npm run build
       - name: Upload Pages artifact

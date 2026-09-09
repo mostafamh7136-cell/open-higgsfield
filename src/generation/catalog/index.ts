@@ -30,7 +30,7 @@ const WAN_5B: ModelEntry = {
   settings: {
     aspectRatio: { type: "enum", values: ["16:9", "9:16", "1:1", "4:3", "3:4"], default: "16:9" },
     resolution: { type: "enum", values: ["fast"], default: "fast" },
-    duration: { type: "range", min: 1, max: 3, default: 2, step: 1 },
+    duration: { type: "range", min: 1, max: 5, default: 2, step: 1 },
   },
 };
 
@@ -42,7 +42,7 @@ const WAN_14B: ModelEntry = {
   settings: {
     aspectRatio: { type: "enum", values: ["16:9", "9:16", "1:1", "4:3", "3:4"], default: "16:9" },
     resolution: { type: "enum", values: ["fast"], default: "fast" },
-    duration: { type: "range", min: 1, max: 3, default: 2, step: 1 },
+    duration: { type: "range", min: 1, max: 5, default: 2, step: 1 },
   },
 };
 
@@ -54,7 +54,7 @@ const LTX: ModelEntry = {
   settings: {
     aspectRatio: { type: "enum", values: ["16:9", "9:16", "1:1", "4:3", "3:4"], default: "16:9" },
     resolution: { type: "enum", values: ["fast"], default: "fast" },
-    duration: { type: "range", min: 1, max: 3, default: 2, step: 1 },
+    duration: { type: "range", min: 0.3, max: 8.5, default: 2, step: 0.5 },
   },
 };
 
